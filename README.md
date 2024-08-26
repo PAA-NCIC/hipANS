@@ -1,8 +1,8 @@
-# hipANS: AMDGPU-based lossless compression for numerical data
+# hipANS: Portable Lossless Compression of Numerical Data for GPU Architectures
 
-Developer: Jinwu Yang
+Developer: Jinwu Yang, Yida Gu, Dingwen Tao
 
-hipANS is a library implemented in the HIP programming language for fast specialized lossless compression of data on AMD GPUs, meant for ML/HPC applications. It also contains the first publicly available GPU-based generalized [asymmetric numeral system (ANS)](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems) compressor and decompressor on AMD GPUs. It is a GPU analogue to Yann Collet's [FSE (Finite State Entropy)](https://github.com/Cyan4973/FiniteStateEntropy) ANS library.
+hipANS is a GPU library implemented in the HIP programming language for fast, specialized lossless data compression, designed for ML and HPC applications. It also includes the **first** publicly available generalized [asymmetric numeral system (ANS)](https://en.wikipedia.org/wiki/Asymmetric_numeral_systems) compressor and decompressor, compatible with various GPU architectures, including AMD GPUs. It is a GPU analogue to Yann Collet's [FSE (Finite State Entropy)](https://github.com/Cyan4973/FiniteStateEntropy) ANS library. It has been primarily ported and optimized from Facebook's [dietGPU](https://github.com/facebookresearch/dietgpu) library.
 
 It currently consists of two parts:
 
@@ -53,7 +53,7 @@ The floating point compressor at the moment uses the rANS codec to handle compre
 
 ## API design
 
-The design fundamentals, originally established for CUDA-based DietGPU library targeting CC 3.5+ (Kepler class) GPUs or later, have been effectively adapted for compatibility with the ROCm platform, specifically focusing on the MI100/MI210 GPUs. This strategic porting of the library, named hipANS, ensures that it can leverage the advanced capabilities of AMD GPUs while retaining the efficiency and performance optimized for the V100/A100 GPUs.
+The design fundamentals, originally established for the CUDA-based DietGPU library targeting CC 3.5+ (Kepler class) GPUs or later, have been effectively adapted for compatibility with the ROCm platform, specifically focusing on MI100/MI210 GPUs. This strategic porting, now named hipANS, ensures that the library leverages the advanced capabilities of AMD GPUs while retaining the efficiency and performance optimized for V100/A100 GPUs.
 
 The library's APIs have been expertly ported to maintain their batch-oriented approach, available in both C++ and Python/PyTorch forms. This ensures that operations with raw pointers in C++ and tensor operations in PyTorch are both supported, facilitating a seamless transition for developers across platforms. The batch processing capability allows for the compression and decompression of multiple independent data arrays, with the stipulation that when using the floating-point compressor, all arrays in a batch must share the same data type. The ANS compression symbol probabilities are calculated on a per-array basis within the batch, ensuring that each compressed tensor produced is independently decompressible, with ANS statistics customized for each array. 
 
@@ -85,7 +85,8 @@ Related lossless floating point compression works include:
 
 These works are sometimes oriented at compressing HPC-type data (e.g., 2d/3d/Nd grid data) where there may be local/dimensional correlations that can be exploited.
 
-[nvCOMP](https://github.com/NVIDIA/nvcomp), Nvidia's GPU lossless compression library.
+- [nvCOMP](https://github.com/NVIDIA/nvcomp), Nvidia's GPU lossless compression library.
+- [dietGPU](https://github.com/facebookresearch/dietgpu), DietGPU: GPU-based lossless compression for numerical data.
 
 ## License
 
