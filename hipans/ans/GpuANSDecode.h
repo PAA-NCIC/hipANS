@@ -21,8 +21,6 @@
 namespace hipans {
 
 using TableT = uint32_t;
-TableT* table_dev;
-size_t __shared__  table_dev_size;
 // We are limited to 11 bits of probability resolution
 // (worst case, prec = 12, pdf == 2^12, single symbol. 2^12 cannot be
 // represented in 12 bits)
@@ -68,10 +66,8 @@ __device__ void decodeOneWarp(
     uint32_t& outNumRead,
 
     // Output: decoded symbol for this iteration
-    ANSDecodedT& outSym,
-
-    int block
-){
+    ANSDecodedT& outSym
+  ){
   constexpr ANSStateT StateMask = (ANSStateT(1) << ProbBits) - ANSStateT(1);
 
   auto s_bar = state & StateMask;
@@ -125,9 +121,8 @@ __device__ void decodeOnePartialWarp(
     uint32_t& outNumRead,
 
     // Output: decoded symbol for this iteration (only if valid)
-    ANSDecodedT& outSym,
-
-    int block) {
+    ANSDecodedT& outSym
+    ) {
   constexpr ANSStateT StateMask = (ANSStateT(1) << ProbBits) - ANSStateT(1);
 
   auto s_bar = state & StateMask;
@@ -174,8 +169,8 @@ __device__ void ansDecodeWarpBlock(
     uint32_t compressedWords,
     const ANSEncodedT* __restrict__ in,
     Writer& writer,
-    const TableT* __restrict__ table,
-    int block) {
+    const TableT* __restrict__ table
+    ) {
   // The compressed input may not be a whole multiple of a warp.
   // In this case, only the lanes that cover the remainder could have read a
   // value in the input, and thus, only they can write a value in the output.
@@ -195,7 +190,7 @@ __device__ void ansDecodeWarpBlock(
     uint32_t numCompressedRead;
     ANSDecodedT sym;
     decodeOnePartialWarp<ProbBits>(
-        valid, state, compressedOffset, in, table, numCompressedRead, sym, block);
+        valid, state, compressedOffset, in, table, numCompressedRead, sym);
     if (valid) {
       writer.write(uncompressedOffset + laneId, sym);
     }
@@ -212,7 +207,7 @@ __device__ void ansDecodeWarpBlock(
     ANSDecodedT sym;
     
     decodeOneWarp<ProbBits>(
-          state, compressedOffset, in, table, numCompressedRead, sym, block);
+          state, compressedOffset, in, table, numCompressedRead, sym);
 
     writer.write(uncompressedOffset + laneId, sym);
 
@@ -224,56 +219,56 @@ __device__ void ansDecodeWarpBlock(
 template <typename Writer, int ProbBits, int BlockSize, bool UseVec4>
 struct ANSDecodeWarpFullBlock;
 
-// template <typename Writer, int ProbBits, int BlockSize>
-// struct ANSDecodeWarpFullBlock<Writer, ProbBits, BlockSize, true> {
-//   static __device__ void decode(
-//     int laneId,
-//     ANSStateT state,
-//     uint32_t compressedWords,
-//     const ANSEncodedT* __restrict__ in,
-//     Writer& writer,
-//     const TableT* __restrict__ table) {
-//     // A variable number of compressed elements are read each iteration
-//     using VecT = ANSDecodedTx4;
+template <typename Writer, int ProbBits, int BlockSize>
+struct ANSDecodeWarpFullBlock<Writer, ProbBits, BlockSize, true> {
+  static __device__ void decode(
+    int laneId,
+    ANSStateT state,
+    uint32_t compressedWords,
+    const ANSEncodedT* __restrict__ in,
+    Writer& writer,
+    const TableT* __restrict__ table) {
+    // A variable number of compressed elements are read each iteration
+    using VecT = ANSDecodedTx4;
 
-//     in += compressedWords;
+    // in += compressedWords;
 
-//     // 2: 252.16 us
-//     // 3: 246.62 us
-//     // 4: 254.91 us
-//     constexpr int kCacheLinesAhead = 3;
+    // 2: 252.16 us
+    // 3: 246.62 us
+    // 4: 254.91 us
+    constexpr int kCacheLinesAhead = 3;
 
-//     for (int i = (BlockSize / sizeof(VecT)) - kWarpSize + laneId; i >= 0;
-//          i -= kWarpSize) {
-//       VecT symV;
-//       // Assuming no compression, we load 2 * sizeof(ANSEncodedT) *
-//       // kWarpSize = 128 bytes per iteration
-//       asm volatile("prefetch.global.L1 [%0];"
-//                    :
-//                    : "l"(in - (kCacheLinesAhead * 128) /
-//                    sizeof(ANSEncodedT)));
+    for (int i = (BlockSize / sizeof(VecT)) - kWarpSize + laneId; i >= 0;
+         i -= kWarpSize) {
+      VecT symV;
+      // Assuming no compression, we load 2 * sizeof(ANSEncodedT) *
+      // kWarpSize = 128 bytes per iteration
+      // asm volatile("prefetch.global.L1 [%0];"
+      //              :
+      //              : "l"(in - (kCacheLinesAhead * 128) /
+      //              sizeof(ANSEncodedT)));
 
-//       //    writer.preload(i + laneId);
-//       writer.preload(i);
+      // //    writer.preload(i + laneId);
+      // writer.preload(i);
 
-// #pragma unroll
-//       for (int j = sizeof(VecT) - 1; j >= 0; --j) {
-//         ANSDecodedT sym;
-//         uint32_t numCompressedRead;
+#pragma unroll
+      for (int j = sizeof(VecT) - 1; j >= 0; --j) {
+        ANSDecodedT sym;
+        uint32_t numCompressedRead;
 
-//         decodeOneWarp<ProbBits>(
-//           state, compressedWords, in, table, numCompressedRead, sym);
+        decodeOneWarp<ProbBits>(
+          state, compressedWords, in, table, numCompressedRead, sym);
 
-//         symV.x[j] = sym;
-//         // compressedWords -= numCompressedRead;
-//         in -= numCompressedRead;
-//       }
+        symV.x[j] = sym;
+        compressedWords -= numCompressedRead;
+        // in -= numCompressedRead;
+      }
 
-//       //    writer.writeVec(i + laneId, symV);
-//       writer.writeVec(i, symV);
-//     }
-//   }
-// };
+      //    writer.writeVec(i + laneId, symV);
+      writer.writeVec(i, symV);
+    }
+  }
+};
 
 // Non-vectorized full block implementation
 template <typename Writer, int ProbBits, int BlockSize>
@@ -284,15 +279,15 @@ struct ANSDecodeWarpFullBlock<Writer, ProbBits, BlockSize, false> {
       uint32_t compressedWords,
       const ANSEncodedT* __restrict__ in,
       Writer& writer,
-      const TableT* __restrict__ table,
-      int block) {
+      const TableT* __restrict__ table
+      ) {
 
     for (int i = BlockSize - kWarpSize + laneId; i >= 0; i -= kWarpSize) {
       ANSDecodedT sym;
       uint32_t numCompressedRead;
 
       decodeOneWarp<ProbBits>(
-          state, compressedWords, in, table, numCompressedRead, sym, block);
+          state, compressedWords, in, table, numCompressedRead, sym);
 
       compressedWords -= numCompressedRead;
       writer.write(i, sym);
@@ -389,8 +384,8 @@ __global__ __launch_bounds__(128) void ansDecodeKernel(
     writer.setBlock(block);
     using Writer = typename OutProvider::Writer;
     if (uncompressedWords == BlockSize) {
-      ANSDecodeWarpFullBlock<Writer, ProbBits, BlockSize, false>::decode(
-          laneId, state, compressedWords, blockDataIn, writer, lookup, block);
+      ANSDecodeWarpFullBlock<Writer, ProbBits, BlockSize, true>::decode(
+          laneId, state, compressedWords, blockDataIn, writer, lookup);
     } else {
       ansDecodeWarpBlock<Writer, ProbBits>(
           laneId,
@@ -399,10 +394,9 @@ __global__ __launch_bounds__(128) void ansDecodeKernel(
           compressedWords,
           blockDataIn,
           writer,
-          lookup,
-          block);
+          lookup
+          );
    }
-    __syncthreads();
   }
 }
 

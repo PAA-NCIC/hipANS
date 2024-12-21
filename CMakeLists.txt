@@ -19,8 +19,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 add_subdirectory(third_party/glog)
 add_subdirectory(third_party/googletest)
-
 add_subdirectory(hipans)
 add_subdirectory(hipans/utils)
 add_subdirectory(hipans/ans)
-add_subdirectory(hipans/float)

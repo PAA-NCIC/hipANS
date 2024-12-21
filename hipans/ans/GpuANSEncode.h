@@ -214,68 +214,68 @@ __device__ uint32_t ansEncodeWarpBlock(
 template <int ProbBits, int BlockSize, bool UseVec4>
 struct ANSEncodeWarpFullBlock;
 
-// template <int ProbBits, int BlockSize>
-// struct ANSEncodeWarpFullBlock<ProbBits, BlockSize, true> {
-//   static __device__ uint32_t encode(
-//     // Current lane ID in the warp
-//     uint32_t laneId,
-//     // Input for this block
-//     const ANSDecodedT* __restrict__ in,
-//     // encoded table in smem
-//     const uint4* __restrict__ table,
-//     // Output for this block
-//     ANSWarpState* __restrict__ out) {
-//     // where we write the compressed words
-//     ANSEncodedT* outWords = (ANSEncodedT*)(out + 1);
+template <int ProbBits, int BlockSize>
+struct ANSEncodeWarpFullBlock<ProbBits, BlockSize, true> {
+  static __device__ uint32_t encode(
+    // Current lane ID in the warp
+    uint32_t laneId,
+    // Input for this block
+    const ANSDecodedT* __restrict__ in,
+    // encoded table in smem
+    const uint4* __restrict__ table,
+    // Output for this block
+    ANSWarpState* __restrict__ out) {
+    // where we write the compressed words
+    ANSEncodedT* outWords = (ANSEncodedT*)(out + 1);
 
-//     // Start state value for this warp
-//     ANSStateT state = kANSStartState;
+    // Start state value for this warp
+    ANSStateT state = kANSStartState;
 
-//     uint32_t outOffset = 0;
+    uint32_t outOffset = 0;
 
-//     using VecT = uint32_t;
+    using VecT = uint32_t;
 
-//     auto inV = (const VecT*)in;
-//     inV += laneId;
+    auto inV = (const VecT*)in;
+    inV += laneId;
 
-//     // kUnroll 4, unroll 2 164.93 us
-//     // kUnroll 8, unroll 0 161.86 us
-//     constexpr int kUnroll = 16;
+    // kUnroll 4, unroll 2 164.93 us
+    // kUnroll 8, unroll 0 161.86 us
+    constexpr int kUnroll = 16;
 
-//     static_assert(
-//       isEvenDivisor((int)BlockSize, (int)(kUnroll * kWarpSize *
-//       sizeof(VecT))),
-//       "");
+    static_assert(
+      isEvenDivisor((int)BlockSize, (int)(kUnroll * kWarpSize *
+      sizeof(VecT))),
+      "");
 
-//     for (int i = 0; i < BlockSize / (kWarpSize * sizeof(VecT));
-//          i += kUnroll, inV += kUnroll * kWarpSize) {
-//       VecT symV[kUnroll];
+    for (int i = 0; i < BlockSize / (kWarpSize * sizeof(VecT));
+         i += kUnroll, inV += kUnroll * kWarpSize) {
+      VecT symV[kUnroll];
 
-// #pragma unroll
-//       for (int j = 0; j < kUnroll; ++j) {
-//         symV[j] = inV[j * kWarpSize];
-//       }
+#pragma unroll
+      for (int j = 0; j < kUnroll; ++j) {
+        symV[j] = inV[j * kWarpSize];
+      }
 
-// #pragma unroll
-//       for (int j = 0; j < kUnroll; ++j) {
-//         asm volatile("prefetch.global.L2 [%0];" : : "l"(inV + 128 + j * 32));
-// #pragma unroll
-//         for (int k = 0; k < 4; ++k) {
-//           outOffset += encodeOneWarp<ProbBits>(
-//             state, symV[j] & 0xff, outOffset, outWords, table);
+#pragma unroll
+      for (int j = 0; j < kUnroll; ++j) {
+        // asm volatile("prefetch.global.L2 [%0];" : : "l"(inV + 128 + j * 32));
+#pragma unroll
+        for (int k = 0; k < 4; ++k) {
+          outOffset += encodeOneWarp<ProbBits>(
+            state, symV[j] & 0xff, outOffset, outWords, table);
 
-//           symV[j] >>= 8;
-//         }
-//       }
-//     }
+          symV[j] >>= 8;
+        }
+      }
+    }
 
-//     // Write final state at the beginning (aligned addresses)
-//     out->warpState[laneId] = state;
+    // Write final state at the beginning (aligned addresses)
+    out->warpState[laneId] = state;
 
-//     // Number of compressed words written
-//     return outOffset;
-//   }
-// };
+    // Number of compressed words written
+    return outOffset;
+  }
+};
 
 template <int ProbBits, int BlockSize>
 struct ANSEncodeWarpFullBlock<ProbBits, BlockSize, false> {
@@ -343,7 +343,7 @@ __device__ void ansEncodeBlocksFull(
   // all input blocks must meet alignment requirements
   assert(isPointerAligned(inBlock, kANSRequiredAlignment));
 
-  auto outWords = ANSEncodeWarpFullBlock<ProbBits, BlockSize, false>::encode(
+  auto outWords = ANSEncodeWarpFullBlock<ProbBits, BlockSize, true>::encode(
       laneId, inBlock, smemLookup, outBlock);
 
   if (laneId == 0) {
