@@ -23,6 +23,9 @@ struct __align__(4) ANSDecodedTx4 {
   ANSDecodedT x[4];
 };
 
+typedef uint32_t uint8 __attribute__((ext_vector_type(8)));
+#define UINT8(pointer) (reinterpret_cast<uint8*>((void *)&(pointer))[0])
+
 constexpr uint32_t kNumSymbols = 1 << (sizeof(ANSDecodedT) * 8);
 static_assert(kNumSymbols > 1, "");
 
