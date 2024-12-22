@@ -129,12 +129,173 @@ __device__ void histogramSingle(
   }
 }
 
+template <int Threads>
+__device__ void histogramSingle_UINT8(
+    const ANSDecodedT* __restrict__ in,
+    uint32_t size,
+    uint32_t* __restrict__ out) {
+  constexpr int kWarps = Threads / kWarpSize;
+  static_assert(Threads == kNumSymbols, "");
+
+  // +1 in order to force very common symbols that could overlap into different
+  // banks?
+  __shared__ uint32_t buckets[kWarps][kNumSymbols + 1];
+
+  int warpId = threadIdx.x / kWarpSize;
+
+#pragma unroll
+  for (int i = 0; i < kWarps; ++i) {
+    buckets[i][threadIdx.x] = 0;
+  }
+
+  __syncthreads();
+
+  uint32_t* warpBucket = buckets[warpId];
+
+  // If the size of batch is smaller than the increment for alignment, we only
+  // handle the batch
+  auto roundUp8 = min(size, getAlignmentRoundUp<sizeof(uint8)>(in));
+
+  // The size of data that remains after alignment
+  auto remaining = size - roundUp8;
+
+  // The size of data (in uint4 words) that we can process with alignment
+  uint32_t numU8 = divDown(remaining, sizeof(uint8));
+
+  auto inAligned = in + roundUp8;
+  auto inAligned8 = (const uint8*)inAligned;
+
+  // Handle the non-aligned portion that we have to load as single words, if any
+  if (blockIdx.x == 0 && threadIdx.x < roundUp8) {
+    static_assert(sizeof(uint4) <= Threads, "");
+    atomicAdd(&warpBucket[in[threadIdx.x]], 1);
+  }
+
+  // Handle the portion that is aligned and uint4 vectorizable
+  // 37.60 us / 80.76% gmem / 51.29% smem for uint4 on A100
+  for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < numU8;
+       i += gridDim.x * Threads) {
+    uint8 v = inAligned8[i];
+
+    {
+      uint32_t x = v[0];
+      atomicAdd(&warpBucket[x & 0xff], 1);
+      x >>= 8;
+      atomicAdd(&warpBucket[x & 0xff], 1);
+      x >>= 8;
+      atomicAdd(&warpBucket[x & 0xff], 1);
+      x >>= 8;
+      atomicAdd(&warpBucket[x], 1);
+    }
+
+    {
+      uint32_t y = v[1];
+      atomicAdd(&warpBucket[y & 0xff], 1);
+      y >>= 8;
+      atomicAdd(&warpBucket[y & 0xff], 1);
+      y >>= 8;
+      atomicAdd(&warpBucket[y & 0xff], 1);
+      y >>= 8;
+      atomicAdd(&warpBucket[y], 1);
+    }
+
+    {
+      uint32_t z = v[2];
+      atomicAdd(&warpBucket[z & 0xff], 1);
+      z >>= 8;
+      atomicAdd(&warpBucket[z & 0xff], 1);
+      z >>= 8;
+      atomicAdd(&warpBucket[z & 0xff], 1);
+      z >>= 8;
+      atomicAdd(&warpBucket[z], 1);
+    }
+
+    {
+      uint32_t w = v[3];
+      atomicAdd(&warpBucket[w & 0xff], 1);
+      w >>= 8;
+      atomicAdd(&warpBucket[w & 0xff], 1);
+      w >>= 8;
+      atomicAdd(&warpBucket[w & 0xff], 1);
+      w >>= 8;
+      atomicAdd(&warpBucket[w], 1);
+    }
+
+    {
+      uint32_t a = v[4];
+      atomicAdd(&warpBucket[a & 0xff], 1);
+      a >>= 8;
+      atomicAdd(&warpBucket[a & 0xff], 1);
+      a >>= 8;
+      atomicAdd(&warpBucket[a & 0xff], 1);
+      a >>= 8;
+      atomicAdd(&warpBucket[a], 1);
+    }
+
+    {
+      uint32_t b = v[5];
+      atomicAdd(&warpBucket[b & 0xff], 1);
+      b >>= 8;
+      atomicAdd(&warpBucket[b & 0xff], 1);
+      b >>= 8;
+      atomicAdd(&warpBucket[b & 0xff], 1);
+      b >>= 8;
+      atomicAdd(&warpBucket[b], 1);
+    }
+
+    {
+      uint32_t c = v[6];
+      atomicAdd(&warpBucket[c & 0xff], 1);
+      c >>= 8;
+      atomicAdd(&warpBucket[c & 0xff], 1);
+      c >>= 8;
+      atomicAdd(&warpBucket[c & 0xff], 1);
+      c >>= 8;
+      atomicAdd(&warpBucket[c], 1);
+    }
+
+    {
+      uint32_t d = v[7];
+      atomicAdd(&warpBucket[d & 0xff], 1);
+      d >>= 8;
+      atomicAdd(&warpBucket[d & 0xff], 1);
+      d >>= 8;
+      atomicAdd(&warpBucket[d & 0xff], 1);
+      d >>= 8;
+      atomicAdd(&warpBucket[d], 1);
+    }
+  }
+
+  if (blockIdx.x == 0) {
+    // Handle the remainder portion that doesn't comprise full words
+    int i = numU8 * sizeof(uint8) + threadIdx.x;
+    if (i < remaining) {
+      atomicAdd(&warpBucket[inAligned[i]], 1);
+    }
+  }
+
+  __syncthreads();
+
+  uint32_t sum = buckets[0][threadIdx.x];
+#pragma unroll
+  for (int j = 1; j < kWarps; ++j) {
+    sum += buckets[j][threadIdx.x];
+  }
+
+  // The count for the thread's bucket could be 0
+  if (sum) {
+    atomicAdd(&out[threadIdx.x], sum);
+  }
+}
+
 template <typename InProvider, int Threads>
 __global__ void histogramBatch(InProvider in, uint32_t* out) {
   int batch = blockIdx.y;
   out += batch * kNumSymbols;
 
-  histogramSingle<Threads>(
+  // histogramSingle<Threads>(
+  //     (const ANSDecodedT*)in.getBatchStart(batch), in.getBatchSize(batch), out);
+  histogramSingle_UINT8<Threads>(
       (const ANSDecodedT*)in.getBatchStart(batch), in.getBatchSize(batch), out);
 }
 
