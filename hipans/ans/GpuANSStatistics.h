@@ -289,7 +289,7 @@ __device__ void histogramSingle_UINT8(
 }
 
 template <typename InProvider, int Threads>
-__global__ void histogramBatch(InProvider in, uint32_t* out) {
+__global__ __launch_bounds__(256) void histogramBatch(InProvider in, uint32_t* out) {
   int batch = blockIdx.y;
   out += batch * kNumSymbols;
 
